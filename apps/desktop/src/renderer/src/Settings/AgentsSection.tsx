@@ -83,6 +83,10 @@ export function AgentsSection({
     persistAgents(agents.map((a) => ({ ...a, isDefault: a.id === profileId })));
   };
 
+  const setHidden = (profileId: string, hidden: boolean) => {
+    persistAgents(agents.map((a) => (a.id === profileId ? { ...a, hidden } : a)));
+  };
+
   const toggleShared = (next: boolean) => {
     onSharedChange(next);
     void window.tday.setSetting(SHARED_KEY, next);
@@ -225,6 +229,11 @@ export function AgentsSection({
                         default
                       </span>
                     ) : null}
+                    {a.hidden ? (
+                      <span className="rounded bg-zinc-700/60 px-1.5 text-[10px] text-zinc-300">
+                        hidden
+                      </span>
+                    ) : null}
                     {a.missingProvider ? (
                       <span className="rounded bg-amber-500/20 px-1.5 text-[10px] text-amber-300">
                         provider missing
@@ -361,15 +370,25 @@ export function AgentsSection({
               </div>
 
               <div className="flex items-center justify-end border-b border-zinc-800/40 pb-3">
-                <label className="flex cursor-pointer items-center gap-2 text-[11px] text-zinc-400">
-                  <input
-                    type="radio"
-                    name="default-agent"
-                    checked={!!a.isDefault}
-                    onChange={() => setAsDefault(a.id)}
-                  />
-                  Default for new tabs
-                </label>
+                <div className="flex items-center gap-4">
+                  <label className="flex cursor-pointer items-center gap-2 text-[11px] text-zinc-400">
+                    <input
+                      type="checkbox"
+                      checked={a.hidden === true}
+                      onChange={(e) => setHidden(a.id, e.target.checked)}
+                    />
+                    Hide from new-tab list
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 text-[11px] text-zinc-400">
+                    <input
+                      type="radio"
+                      name="default-agent"
+                      checked={!!a.isDefault}
+                      onChange={() => setAsDefault(a.id)}
+                    />
+                    Default for new tabs
+                  </label>
+                </div>
               </div>
 
               <div>

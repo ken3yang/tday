@@ -28,7 +28,7 @@ export function TabBar({
 }: TabBarProps) {
   const [showAgentMenu, setShowAgentMenu] = useState(false);
   const menuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const launchableAgents = agentList.filter((a) => a.detect.available);
+  const launchableAgents = agentList.filter((a) => a.detect.available && !a.hidden);
 
   const openMenu = () => {
     if (menuCloseTimer.current) { clearTimeout(menuCloseTimer.current); menuCloseTimer.current = null; }
@@ -117,7 +117,7 @@ export function TabBar({
                   </button>
                 ))}
                 {launchableAgents.length === 0 ? (
-                  <div className="px-3 py-2 text-zinc-600">No installed agents</div>
+                  <div className="px-3 py-2 text-zinc-600">No visible installed agents</div>
                 ) : null}
                 <div className="my-1 border-t border-zinc-800/60" />
                 <button

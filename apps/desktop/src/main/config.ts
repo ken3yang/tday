@@ -97,6 +97,7 @@ export function normalizeAgentsConfig(raw: AgentsConfig): AgentsConfig {
         .map((p) => ({
           ...p,
           displayName: p.displayName.trim() || p.id,
+          hidden: p.hidden === true,
         })),
       raw.agents,
     );

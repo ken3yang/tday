@@ -230,6 +230,7 @@ export function Settings({
         displayName: a.displayName,
         providerId: a.providerId || undefined,
         model: a.model || undefined,
+        hidden: a.hidden === true,
         isBuiltinProfile: a.isBuiltinProfile,
       })),
     };

@@ -45,6 +45,7 @@ Each launchable profile has:
 - `profileId: string`
 - `baseAgentId: AgentId`
 - `displayName: string`
+- `hidden?: boolean`
 - `providerId?: string`
 - `model?: string`
 - `bin?: string`
@@ -63,6 +64,7 @@ export interface AgentProfile {
   id: string;
   baseAgentId: AgentId;
   displayName: string;
+  hidden?: boolean;
   providerId?: string;
   model?: string;
   bin?: string;
@@ -92,6 +94,11 @@ Base rule:
 
 - default duplicate name is `<original name> Duplicate`
 
+Visibility rule:
+
+- hidden profiles remain persisted and editable
+- hidden profiles are excluded from the new-tab picker
+
 Collision rule:
 
 - if the generated name already exists, append a numeric suffix
@@ -117,6 +124,7 @@ export interface AgentProfile {
   id: AgentProfileId;
   baseAgentId: AgentId;
   displayName: string;
+  hidden?: boolean;
   providerId?: string;
   model?: string;
   bin?: string;
@@ -145,6 +153,7 @@ export interface AgentProfileInfo {
   providerId?: string;
   model?: string;
   isDefault?: boolean;
+  hidden?: boolean;
   isBuiltinProfile?: boolean;
   missingProvider?: boolean;
 }
@@ -359,6 +368,7 @@ UI rows should render:
 - `displayName` from profile
 - status/install details from base harness
 - provider/model from profile
+- hidden state from profile
 
 ### Agent Settings UI
 
@@ -369,6 +379,7 @@ Required actions:
 - rename profile
 - duplicate profile
 - delete duplicate profile
+- hide/unhide profile
 - bind provider
 - edit model override
 - set default profile
@@ -388,6 +399,12 @@ Shared-provider toggle:
 - keep existing behavior for now
 - when enabled, apply provider/model changes to all profiles
 - persist against profile rows, not base agents
+
+Hide toggle:
+
+- persist `hidden` on the profile
+- exclude `hidden === true` profiles from the new-tab picker
+- do not hide them from `Settings -> Agents`
 
 ### Tabs
 

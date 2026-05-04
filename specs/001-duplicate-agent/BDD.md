@@ -72,6 +72,22 @@ Then both `Codex Native` and `Codex DeepSeek` are listed as launchable agents
 When the user opens any other agent-selection dropdown
 Then both `Codex Native` and `Codex DeepSeek` are listed there too
 
+### Scenario: Hide a profile from the new-tab agent picker
+
+Given a profile named `Codex DeepSeek` exists
+And the base Codex harness is installed
+When the user turns on `Hide from new-tab list` for `Codex DeepSeek`
+Then `Codex DeepSeek` does not appear in the new-tab agent picker
+And `Codex DeepSeek` remains editable in `Settings -> Agents`
+And the underlying Codex harness remains installed
+
+### Scenario: Unhide a profile
+
+Given a profile named `Codex DeepSeek` exists
+And `Codex DeepSeek` is hidden from the new-tab agent picker
+When the user turns off `Hide from new-tab list` for `Codex DeepSeek`
+Then `Codex DeepSeek` appears in the new-tab agent picker again
+
 ### Scenario: Set a duplicated profile as the default
 
 Given profiles named `Codex Native` and `Codex DeepSeek` exist

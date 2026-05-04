@@ -172,6 +172,7 @@ export interface AgentProfile extends AgentSettings {
   id: AgentProfileId;
   baseAgentId: AgentId;
   displayName: string;
+  hidden?: boolean;
   isBuiltinProfile?: boolean;
   createdAt?: number;
 }
@@ -204,6 +205,8 @@ export interface AgentInfo {
   model?: string;
   /** True if this profile is configured as the default for new tabs. */
   isDefault?: boolean;
+  /** Hidden profiles stay installed/configured but are omitted from the new-tab picker. */
+  hidden?: boolean;
   /** Built-in profiles are renameable but not deletable. */
   isBuiltinProfile?: boolean;
   /** The profile points at a provider that no longer exists. */

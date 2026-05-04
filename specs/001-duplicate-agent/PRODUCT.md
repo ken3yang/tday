@@ -34,6 +34,7 @@ Current limitation:
 - Let users duplicate a base agent into multiple profiles.
 - Let each duplicate have its own display name.
 - Let users rename agent profiles after creation.
+- Let users hide a profile from the new-tab agent list without deleting it.
 - Let each duplicate bind to a different provider.
 - Let each duplicate optionally override the model.
 - Let duplicated profiles appear anywhere the user chooses an agent to launch.
@@ -54,6 +55,7 @@ Current limitation:
 4. As a user, I can set one duplicated profile as the default for new tabs.
 5. As a user, I can remove a duplicated profile without removing the underlying built-in harness.
 6. As a user, I can rename an existing profile later if I want to repurpose it for another provider or model.
+7. As a user, I can hide a profile from the new-tab list while keeping its settings and installed harness intact.
 
 ## UX Proposal
 
@@ -99,6 +101,7 @@ Each duplicated profile should support:
 - display name
 - provider binding
 - model override
+- hide from new-tab list
 - default-agent toggle
 - delete action for duplicates
 
@@ -111,6 +114,8 @@ Duplicated profiles should appear in:
 - the new-tab agent picker
 - any agent dropdown in the main UI
 - cron job agent selection, if cron is profile-based rather than base-agent-based
+
+Hidden profiles should not appear in the new-tab agent picker.
 
 ## Functional Requirements
 
@@ -159,7 +164,18 @@ Rename rules:
 
 The user can mark any profile, including a duplicate, as the default for new tabs.
 
-### FR6. Safe delete
+### FR6. Visibility control
+
+The user can hide or unhide any profile through `Settings -> Agents`.
+
+Hide rules:
+
+- hiding a profile removes it from the new-tab agent picker
+- hiding a profile does not uninstall the underlying harness
+- hiding a profile does not delete provider/model settings
+- hidden profiles remain editable in `Settings -> Agents`
+
+### FR7. Safe delete
 
 The user can delete duplicated profiles.
 
@@ -169,7 +185,7 @@ Delete rules:
 - deleting a duplicate must not delete provider profiles
 - if the deleted profile was the default, Tday should fall back to a sensible default and show that clearly
 
-### FR7. Analytics identity
+### FR8. Analytics identity
 
 Usage analytics should support both grouping modes:
 
@@ -181,7 +197,7 @@ This lets users answer both questions:
 - "How much do I use Codex overall?"
 - "How much do I use Codex DeepSeek versus Codex Ollama?"
 
-### FR8. Session restore behavior
+### FR9. Session restore behavior
 
 When session history is restored, Tday should reopen against the original profile id when possible.
 
@@ -191,7 +207,7 @@ Fallback behavior:
 - if the original profile was deleted, show the original profile name with ` (deleted)` appended
 - if the original profile was deleted, do not silently switch to an unrelated profile
 
-### FR9. Backward compatibility
+### FR10. Backward compatibility
 
 Existing users with current `agents.json` should upgrade without losing settings.
 
@@ -272,13 +288,15 @@ On first launch after upgrade:
 3. The original `Codex` profile remains unchanged when the duplicate's provider is changed.
 4. Two or more Codex-based profiles can coexist with different providers and models.
 5. A user can rename any profile from `Settings -> Agents`, and the new name appears anywhere that profile is selectable.
-6. Any duplicated profile can be launched from the normal agent picker.
-7. Any duplicated profile can be set as default.
-8. A duplicated profile can be deleted without affecting the original base agent.
-9. Usage analytics can be viewed by base agent and by profile.
-10. Restoring session history reuses the original profile id when that profile still exists.
-11. If a restored session references a deleted profile, Tday shows that profile name with ` (deleted)` appended.
-12. Existing users upgrade without losing current agent/provider/model settings.
+6. A hidden profile does not appear in the new-tab agent picker even when its base harness is installed.
+7. Unhiding the profile makes it appear in the new-tab agent picker again.
+8. Any duplicated profile can be launched from the normal agent picker.
+9. Any duplicated profile can be set as default.
+10. A duplicated profile can be deleted without affecting the original base agent.
+11. Usage analytics can be viewed by base agent and by profile.
+12. Restoring session history reuses the original profile id when that profile still exists.
+13. If a restored session references a deleted profile, Tday shows that profile name with ` (deleted)` appended.
+14. Existing users upgrade without losing current agent/provider/model settings.
 
 ## Recommendation
 

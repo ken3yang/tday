@@ -150,6 +150,7 @@ function registerIpc(): void {
         providerId: profile.providerId,
         model: profile.model,
         isDefault: profile.id === defaultId,
+        hidden: profile.hidden === true,
         isBuiltinProfile: profile.isBuiltinProfile,
         missingProvider: !!(profile.providerId && !providers.profiles.some((p) => p.id === profile.providerId)),
       });
