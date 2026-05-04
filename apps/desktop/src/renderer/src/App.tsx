@@ -1,5 +1,5 @@
 import { startTransition, useEffect, useState } from 'react';
-import type { AgentId, AgentInfo, CoWorker } from '@tday/shared';
+import type { AgentInfo, CoWorker } from '@tday/shared';
 import { Terminal } from './Terminal';
 import { Settings } from './Settings';
 import { TabBar } from './components/TabBar';
@@ -37,8 +37,15 @@ export default function App() {
   const { keepAwakeId, toggleKeepAwake, initKeepAwake } = useKeepAwake();
   const { installing, installPct, installStatus, installLog, refreshAgents, maybeAutoInstall } = useAgentInstall();
 
-  const defaultAgentId: AgentId =
-    (agentList.find((a) => a.isDefault)?.id as AgentId | undefined) ?? 'pi';
+  const defaultAgent: AgentInfo =
+    agentList.find((a) => a.isDefault)
+    ?? agentList.find((a) => a.baseAgentId === 'pi')
+    ?? {
+      id: 'pi',
+      baseAgentId: 'pi',
+      displayName: 'Pi',
+      detect: { available: false },
+    };
 
   const {
     tabs, activeId, setActiveId,
@@ -48,7 +55,7 @@ export default function App() {
     setTabDraft, commitTabCwd, browseTabCwd, setTabCoworker,
     onDragStart, onDragOver, onDrop, onDragEnd,
     setLastCwd, initTabs, loadDeferredData,
-  } = useTabs(home, defaultAgentId);
+  } = useTabs(home, defaultAgent);
 
   const openSettings = (section?: SettingsSection) => {
     startTransition(() => { if (section) setSettingsSection(section); setSettingsOpen(true); });
@@ -70,7 +77,15 @@ export default function App() {
         typeof settings[LAST_CWD_KEY] === 'string' ? (settings[LAST_CWD_KEY] as string) : h;
       setLastCwd(initialCwd);
 
-      const def = (list.find((a) => a.isDefault)?.id as AgentId | undefined) ?? 'pi';
+      const def =
+        list.find((a) => a.isDefault)
+        ?? list.find((a) => a.baseAgentId === 'pi')
+        ?? {
+          id: 'pi',
+          baseAgentId: 'pi',
+          displayName: 'Pi',
+          detect: { available: false },
+        };
       const persisted = loadPersistedTabsFromRaw(settings[TABS_STATE_KEY]);
       const savedActiveId =
         typeof settings[ACTIVE_TAB_KEY] === 'string' ? (settings[ACTIVE_TAB_KEY] as string) : null;
@@ -91,7 +106,7 @@ export default function App() {
         () => initKeepAwake(true),
       );
 
-      maybeAutoInstall(h, list, setAgentList, def);
+      maybeAutoInstall(h, list, setAgentList, def.baseAgentId);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -122,10 +137,11 @@ export default function App() {
             dragId={dragId}
             platform={window.tday.platform}
             agentList={agentList}
-            defaultAgentId={defaultAgentId}
+            defaultAgentId={defaultAgent.baseAgentId}
+            defaultAgentName={defaultAgent.displayName}
             onSetActiveId={setActiveId}
             onCloseTab={closeTab}
-            onAddTab={(agentId) => addTab(agentId)}
+            onAddTab={(agent) => addTab(agent)}
             onDragStart={onDragStart}
             onDragOver={onDragOver}
             onDrop={onDrop}
@@ -176,8 +192,11 @@ export default function App() {
             {[...tabs].sort((a) => (a.id === activeId ? -1 : 0)).map((t) => (
               <div
                 key={t.id}
-                className="h-full w-full"
-                style={{ display: t.id === activeId ? 'block' : 'none' }}
+                className="absolute inset-0 h-full w-full"
+                style={{
+                  visibility: t.id === activeId ? 'visible' : 'hidden',
+                  pointerEvents: t.id === activeId ? 'auto' : 'none',
+                }}
               >
                 {/* While Pi is being auto-installed, withhold the Terminal so it
                     doesn't try to spawn an unavailable binary and show a stale
@@ -193,6 +212,8 @@ export default function App() {
                     key={`${t.id}:${t.epoch}`}
                     tabId={t.id}
                     agentId={t.agentId}
+                    agentProfileId={t.agentProfileId}
+                    agentProfileName={t.agentProfileName}
                     cwd={t.cwd}
                     active={t.id === activeId}
                     agentSessionId={t.agentSessionId}

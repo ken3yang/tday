@@ -12,13 +12,13 @@ export function UsageSection({ agents }: UsageSectionProps) {
   const [usageDateMode, setUsageDateMode] = useState<UsageDateMode>('30d');
   const [usageCustomFrom, setUsageCustomFrom] = useState('');
   const [usageCustomTo, setUsageCustomTo] = useState('');
-  const [usageAgentId, setUsageAgentId] = useState('');
+  const [usageProfileId, setUsageProfileId] = useState('');
 
   const loadUsage = async (
     mode: UsageDateMode,
     customFrom: string,
     customTo: string,
-    agentId: string,
+    profileId: string,
   ) => {
     const now = Date.now();
     const todayStart = (() => {
@@ -27,7 +27,7 @@ export function UsageSection({ agents }: UsageSectionProps) {
       return d.getTime();
     })();
     const filter: UsageFilter = {};
-    if (agentId) filter.agentId = agentId;
+    if (profileId) filter.agentProfileId = profileId;
     switch (mode) {
       case 'today':
         filter.fromTs = todayStart;
@@ -59,9 +59,9 @@ export function UsageSection({ agents }: UsageSectionProps) {
   };
 
   useEffect(() => {
-    void loadUsage(usageDateMode, usageCustomFrom, usageCustomTo, usageAgentId);
+    void loadUsage(usageDateMode, usageCustomFrom, usageCustomTo, usageProfileId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usageDateMode, usageCustomFrom, usageCustomTo, usageAgentId]);
+  }, [usageDateMode, usageCustomFrom, usageCustomTo, usageProfileId]);
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden text-xs">
@@ -103,19 +103,19 @@ export function UsageSection({ agents }: UsageSectionProps) {
           ) : null}
         </div>
 
-        {/* Agent filter */}
+        {/* Profile filter */}
         <div>
-          <div className="mb-1.5 text-[10px] uppercase tracking-wider text-zinc-500">Agent</div>
+          <div className="mb-1.5 text-[10px] uppercase tracking-wider text-zinc-500">Profile</div>
           <div className="flex flex-col gap-1">
             {[
-              { id: '', label: 'All agents' },
+              { id: '', label: 'All profiles' },
               ...agents.map((a) => ({ id: a.id, label: a.displayName })),
             ].map(({ id, label }) => (
               <button
                 key={id}
-                onClick={() => setUsageAgentId(id)}
+                onClick={() => setUsageProfileId(id)}
                 className={`truncate rounded-md px-2.5 py-1 text-left text-[11px] transition-colors ${
-                  usageAgentId === id
+                  usageProfileId === id
                     ? 'bg-fuchsia-500/20 text-fuchsia-200'
                     : 'text-zinc-400 hover:bg-zinc-900'
                 }`}
@@ -128,7 +128,7 @@ export function UsageSection({ agents }: UsageSectionProps) {
 
         <button
           onClick={() =>
-            void loadUsage(usageDateMode, usageCustomFrom, usageCustomTo, usageAgentId)
+            void loadUsage(usageDateMode, usageCustomFrom, usageCustomTo, usageProfileId)
           }
           className="rounded-md bg-zinc-900 px-2.5 py-1.5 text-[11px] text-zinc-400 hover:bg-zinc-800"
         >
@@ -241,6 +241,56 @@ export function UsageSection({ agents }: UsageSectionProps) {
                                 : m.costUsd === 0
                                 ? 'Free'
                                 : `$${m.costUsd.toFixed(4)}`}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Profile breakdown */}
+            {Object.keys(usageData.byProfile).length > 0 ? (
+              <div className="mb-4">
+                <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+                  By profile
+                </div>
+                <div className="overflow-hidden rounded-md border border-zinc-800/60">
+                  <table className="w-full text-[11px]">
+                    <thead>
+                      <tr className="border-b border-zinc-800/60 text-zinc-500">
+                        <th className="px-3 py-1.5 text-left font-normal">Profile</th>
+                        <th className="px-3 py-1.5 text-right font-normal">Reqs</th>
+                        <th className="px-3 py-1.5 text-right font-normal">Tokens</th>
+                        <th className="px-3 py-1.5 text-right font-normal">Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(usageData.byProfile)
+                        .sort(
+                          ([, a], [, b]) =>
+                            b.inputTokens +
+                            b.outputTokens -
+                            (a.inputTokens + a.outputTokens) ||
+                            b.requests - a.requests,
+                        )
+                        .map(([profileId, ag]) => (
+                          <tr
+                            key={profileId}
+                            className="border-b border-zinc-800/40 last:border-0 hover:bg-zinc-900/40"
+                          >
+                            <td className="px-3 py-1.5 text-zinc-300">{ag.agentProfileName ?? profileId}</td>
+                            <td className="px-3 py-1.5 text-right text-zinc-400">{ag.requests}</td>
+                            <td className="px-3 py-1.5 text-right text-zinc-400">
+                              {fmtNum(ag.inputTokens + ag.outputTokens)}
+                            </td>
+                            <td className="px-3 py-1.5 text-right text-zinc-400">
+                              {ag.costUsd === null
+                                ? '—'
+                                : ag.costUsd === 0
+                                ? 'Free'
+                                : `$${ag.costUsd.toFixed(4)}`}
                             </td>
                           </tr>
                         ))}

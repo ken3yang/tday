@@ -13,6 +13,10 @@ export interface UsageRecord {
   ts: number;
   /** Which agent ran the request. */
   agentId: AgentId | string;
+  /** Which launch profile ran the request, when known. */
+  agentProfileId?: string;
+  /** Snapshot of the profile name at request time, when known. */
+  agentProfileName?: string;
   /** Provider profile id. */
   providerId: string;
   /** Exact model string used. */
@@ -47,6 +51,8 @@ export interface UsageSummary {
   byModel: Record<string, ModelUsage>;
   /** Breakdown by agent. */
   byAgent: Record<string, AgentUsage>;
+  /** Breakdown by profile. */
+  byProfile: Record<string, ProfileUsage>;
   /** Daily bucketed data for the chart (ISO date string → counts). */
   daily: DailyStat[];
 }
@@ -61,6 +67,15 @@ export interface ModelUsage {
 
 export interface AgentUsage {
   agentId: string;
+  inputTokens: number;
+  outputTokens: number;
+  requests: number;
+  costUsd: number | null;
+}
+
+export interface ProfileUsage {
+  agentProfileId: string;
+  agentProfileName?: string;
   inputTokens: number;
   outputTokens: number;
   requests: number;

@@ -9,9 +9,10 @@ interface TabBarProps {
   platform: string;
   agentList: AgentInfo[];
   defaultAgentId: AgentId;
+  defaultAgentName: string;
   onSetActiveId: (id: string) => void;
   onCloseTab: (id: string) => void;
-  onAddTab: (agentId?: AgentId) => void;
+  onAddTab: (agent?: AgentInfo) => void;
   onDragStart: (id: string) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (overId: string) => void;
@@ -20,13 +21,14 @@ interface TabBarProps {
 }
 
 export function TabBar({
-  tabs, activeId, dragId, platform, agentList, defaultAgentId,
+  tabs, activeId, dragId, platform, agentList, defaultAgentId, defaultAgentName,
   onSetActiveId, onCloseTab, onAddTab,
   onDragStart, onDragOver, onDrop, onDragEnd,
   onOpenSettings,
 }: TabBarProps) {
   const [showAgentMenu, setShowAgentMenu] = useState(false);
   const menuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const launchableAgents = agentList.filter((a) => a.detect.available);
 
   const openMenu = () => {
     if (menuCloseTimer.current) { clearTimeout(menuCloseTimer.current); menuCloseTimer.current = null; }
@@ -37,18 +39,19 @@ export function TabBar({
     menuCloseTimer.current = setTimeout(() => setShowAgentMenu(false), 500);
   };
 
-  const handleAddTab = (agentId?: AgentId) => {
+  const handleAddTab = (agent?: AgentInfo) => {
     setShowAgentMenu(false);
-    onAddTab(agentId);
+    onAddTab(agent);
   };
 
   return (
     <div className={`drag flex min-h-11 items-start gap-2 bg-[#0a0a0f] py-1.5 ${platform === 'darwin' ? 'pl-20' : 'pl-4'} pr-4`}>
       <div className="flex flex-1 flex-wrap items-center gap-1">
         {tabs.map((t) => {
-          const fullTitle = t.title === agentTitle(t.agentId)
+          const tabAgentName = t.agentProfileName ?? agentTitle(t.agentId);
+          const fullTitle = t.title === tabAgentName
             ? t.title
-            : `${agentTitle(t.agentId)}: ${t.title}`;
+            : `${tabAgentName}: ${t.title}`;
           return (
             <button
               key={t.id}
@@ -90,7 +93,7 @@ export function TabBar({
           <button
             onClick={() => handleAddTab()}
             className="rounded-md px-3 py-1 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
-            title={`New ${agentTitle(defaultAgentId)} tab (hover to pick agent)`}
+            title={`New ${defaultAgentName} tab (hover to pick agent)`}
           >
             +
           </button>
@@ -101,30 +104,21 @@ export function TabBar({
               onMouseLeave={scheduleCloseMenu}
             >
               <div className="rounded-md border border-zinc-800 bg-zinc-950 py-1 text-xs shadow-xl">
-                {([
-                  'pi', 'claude-code', 'codex', 'copilot', 'opencode',
-                  'gemini', 'qwen-code', 'crush', 'hermes',
-                ] as AgentId[]).map((id) => {
-                  const info = agentList.find((a) => a.id === id);
-                  const installed = !!info?.detect.available;
-                  return (
-                    <button
-                      key={id}
-                      disabled={!installed}
-                      onClick={() => handleAddTab(id)}
-                      className={`flex w-full items-center justify-between px-3 py-1.5 text-left ${
-                        installed
-                          ? 'text-zinc-200 hover:bg-zinc-800'
-                          : 'cursor-not-allowed text-zinc-600'
-                      }`}
-                    >
-                      <span>{agentTitle(id)}</span>
-                      <span className="ml-3 text-[10px] text-zinc-500">
-                        {id === defaultAgentId ? 'default' : installed ? '' : 'not installed'}
-                      </span>
-                    </button>
-                  );
-                })}
+                {launchableAgents.map((info) => (
+                  <button
+                    key={info.id}
+                    onClick={() => handleAddTab(info)}
+                    className="flex w-full items-center justify-between px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-800"
+                  >
+                    <span className="truncate">{info.displayName}</span>
+                    <span className="ml-3 text-[10px] text-zinc-500">
+                      {info.isDefault ? 'default' : ''}
+                    </span>
+                  </button>
+                ))}
+                {launchableAgents.length === 0 ? (
+                  <div className="px-3 py-2 text-zinc-600">No installed agents</div>
+                ) : null}
                 <div className="my-1 border-t border-zinc-800/60" />
                 <button
                   onClick={() => { setShowAgentMenu(false); startTransition(() => onOpenSettings('agents')); }}

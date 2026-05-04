@@ -14,6 +14,9 @@ export type AgentId =
   | 'crush'
   | 'hermes';
 
+/** Stable identifier for a user-visible launch profile. */
+export type AgentProfileId = string;
+
 /**
  * Provider "kind" controls how credentials are projected onto an agent.
  *
@@ -81,8 +84,14 @@ export interface ProviderProfile {
 /** What the renderer asks the main process to spawn. */
 export interface SpawnRequest {
   tabId: string;
+  /** Built-in harness id used to select the adapter implementation. */
   agentId: AgentId;
+  /** Launch profile id used to resolve saved provider/model/bin bindings. */
+  agentProfileId?: AgentProfileId;
+  /** Snapshot of the launch profile label, used for UI/history continuity. */
+  agentProfileName?: string;
   providerId?: string;
+  model?: string;
   cwd?: string;
   cols: number;
   rows: number;
@@ -137,6 +146,11 @@ export interface TabHistoryEntry {
   histId: string;
   title: string;
   agentId: AgentId;
+  agentProfileId?: AgentProfileId;
+  agentProfileName?: string;
+  profileDeleted?: boolean;
+  providerId?: string;
+  model?: string;
   cwd: string;
   closedAt: number;
   /** Agent-native session ID (UUID or similar). Null when unsupported. */
@@ -153,16 +167,33 @@ export interface AgentSettings {
   model?: string;
 }
 
+/** Per-profile persisted settings. */
+export interface AgentProfile extends AgentSettings {
+  id: AgentProfileId;
+  baseAgentId: AgentId;
+  displayName: string;
+  isBuiltinProfile?: boolean;
+  createdAt?: number;
+}
+
 /** Static config loaded from ~/.tday/agents.json. */
 export interface AgentsConfig {
-  /** Which agent to launch in newly-created tabs (default: 'pi'). */
+  /** Current profile-based config version. */
+  version?: 2;
+  /** Which launch profile to use in newly-created tabs. */
+  defaultProfileId?: AgentProfileId;
+  profiles?: AgentProfile[];
+
+  /** Legacy field preserved for migration compatibility. */
   defaultAgentId?: AgentId;
+  /** Legacy field preserved for migration compatibility. */
   agents?: Partial<Record<AgentId, AgentSettings>>;
 }
 
 /** Returned by `agents:list` — combines static spec, install state and bindings. */
 export interface AgentInfo {
-  id: AgentId;
+  id: AgentProfileId;
+  baseAgentId: AgentId;
   displayName: string;
   description?: string;
   npmPackage?: string;
@@ -171,8 +202,12 @@ export interface AgentInfo {
   providerId?: string;
   /** Bound model override. */
   model?: string;
-  /** True if this agent is configured as the default for new tabs. */
+  /** True if this profile is configured as the default for new tabs. */
   isDefault?: boolean;
+  /** Built-in profiles are renameable but not deletable. */
+  isBuiltinProfile?: boolean;
+  /** The profile points at a provider that no longer exists. */
+  missingProvider?: boolean;
 }
 
 /** Static config loaded from ~/.tday/providers.json (v0.1.0). */
@@ -191,6 +226,12 @@ export interface AgentHistoryEntry {
   id: string;
   /** Agent identifier (AgentId or unknown string for future agents). */
   agentId: string;
+  /** Launch profile id when the session originated from a Tday profile. */
+  agentProfileId?: AgentProfileId;
+  /** Snapshot of the profile name used by the session. */
+  agentProfileName?: string;
+  /** True when the original profile no longer exists. */
+  profileDeleted?: boolean;
   /** Agent-native session ID passed to --resume / --session on restore. */
   sessionId?: string;
   /** Human-readable title: first user message, or file-derived fallback. */
@@ -265,6 +306,8 @@ export interface CronJob {
   id: string;
   name: string;
   agentId: AgentId;
+  agentProfileId?: AgentProfileId;
+  agentProfileName?: string;
   /** Working directory for the agent tab. */
   cwd: string;
   /** The prompt / goal to send to the agent when the cron fires. */
@@ -290,6 +333,8 @@ export interface CronJobStats {
 export interface CronFireEvent {
   jobId: string;
   agentId: AgentId;
+  agentProfileId?: AgentProfileId;
+  agentProfileName?: string;
   cwd: string;
   prompt: string;
   name: string;
@@ -384,6 +429,8 @@ export interface ProbeUrlResult {
 export interface UsageRecord {
   ts: number;
   agentId: AgentId | string;
+  agentProfileId?: AgentProfileId;
+  agentProfileName?: string;
   providerId: string;
   model: string;
   inputTokens: number;
@@ -397,7 +444,9 @@ export interface UsageFilter {
   fromTs?: number;
   toTs?: number;
   agentId?: string;
+  agentProfileId?: string;
   providerId?: string;
+  groupBy?: 'base-agent' | 'profile';
 }
 
 export interface ModelUsage {
@@ -410,6 +459,15 @@ export interface ModelUsage {
 
 export interface AgentUsage {
   agentId: string;
+  inputTokens: number;
+  outputTokens: number;
+  requests: number;
+  costUsd: number | null;
+}
+
+export interface ProfileUsage {
+  agentProfileId: string;
+  agentProfileName?: string;
   inputTokens: number;
   outputTokens: number;
   requests: number;
@@ -442,6 +500,7 @@ export interface UsageSummary {
   throughputTokensPerMin: number;
   byModel: Record<string, ModelUsage>;
   byAgent: Record<string, AgentUsage>;
+  byProfile: Record<string, ProfileUsage>;
   daily: DailyStat[];
 }
 

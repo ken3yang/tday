@@ -11,7 +11,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import type { UsageRecord, UsageSummary, ModelUsage, AgentUsage, DailyStat } from './types.js';
+import type { UsageRecord, UsageSummary, ModelUsage, AgentUsage, ProfileUsage, DailyStat } from './types.js';
 import { resolvePrice, calcCost, BUILTIN_PRICING } from './pricing.js';
 import type { ModelPricing } from './types.js';
 
@@ -56,6 +56,8 @@ export interface UsageFilter {
   toTs?: number;
   /** Filter by agent id. */
   agentId?: string;
+  /** Filter by profile id. */
+  agentProfileId?: string;
   /** Filter by provider id. */
   providerId?: string;
 }
@@ -75,6 +77,7 @@ export function computeUsageSummary(records: UsageRecord[]): UsageSummary {
   let totalCostUsd: number | null = 0;
   const byModel: Record<string, ModelUsage> = {};
   const byAgent: Record<string, AgentUsage> = {};
+  const byProfile: Record<string, ProfileUsage> = {};
   const dailyMap: Record<string, DailyStat> = {};
 
   for (const r of records) {
@@ -117,6 +120,27 @@ export function computeUsageSummary(records: UsageRecord[]): UsageSummary {
     if (cost !== null && am.costUsd !== null) am.costUsd += cost;
     else am.costUsd = null;
 
+    // Per-profile
+    if (r.agentProfileId) {
+      if (!byProfile[r.agentProfileId]) {
+        byProfile[r.agentProfileId] = {
+          agentProfileId: r.agentProfileId,
+          agentProfileName: r.agentProfileName,
+          inputTokens: 0,
+          outputTokens: 0,
+          requests: 0,
+          costUsd: 0,
+        };
+      }
+      const pm = byProfile[r.agentProfileId]!;
+      pm.agentProfileName = pm.agentProfileName ?? r.agentProfileName;
+      pm.inputTokens += r.inputTokens;
+      pm.outputTokens += r.outputTokens;
+      pm.requests += 1;
+      if (cost !== null && pm.costUsd !== null) pm.costUsd += cost;
+      else pm.costUsd = null;
+    }
+
     // Daily
     if (!dailyMap[date]) dailyMap[date] = { date, inputTokens: 0, outputTokens: 0, cachedTokens: 0, requests: 0, costUsd: 0, toolCalls: 0 };
     const dm = dailyMap[date]!;
@@ -152,6 +176,7 @@ export function computeUsageSummary(records: UsageRecord[]): UsageSummary {
     throughputTokensPerMin,
     byModel,
     byAgent,
+    byProfile,
     daily,
   };
 }
@@ -167,6 +192,7 @@ export function loadUsageRecords(filter: UsageFilter = {}): UsageRecord[] {
       if (filter.fromTs !== undefined && r.ts < filter.fromTs) continue;
       if (filter.toTs !== undefined && r.ts >= filter.toTs) continue;
       if (filter.agentId && r.agentId !== filter.agentId) continue;
+      if (filter.agentProfileId && r.agentProfileId !== filter.agentProfileId) continue;
       if (filter.providerId && r.providerId !== filter.providerId) continue;
       records.push(r);
     } catch {

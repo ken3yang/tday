@@ -39,6 +39,11 @@ export interface TabHistoryEntry {
   histId: string;
   title: string;
   agentId: AgentId;
+  agentProfileId?: string;
+  agentProfileName?: string;
+  profileDeleted?: boolean;
+  providerId?: string;
+  model?: string;
   cwd: string;
   closedAt: number;
   /** Agent-native session ID — passed as --resume / --session on restore. */

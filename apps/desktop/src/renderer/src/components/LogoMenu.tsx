@@ -143,7 +143,7 @@ export function LogoMenu({
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5">
                                 <span className="shrink-0 text-[10px] font-medium" style={{ color: agentColor(entry.agentId as AgentId) }}>
-                                  {agentTitle(entry.agentId as AgentId)}
+                                  {entry.agentProfileName ?? agentTitle(entry.agentId as AgentId)}
                                 </span>
                                 <span className="truncate text-zinc-200">{entry.title}</span>
                               </div>

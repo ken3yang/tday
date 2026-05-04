@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { normalizeProvidersConfig } from './provider-utils.js';
-import { detectGeneric } from './agent-utils.js';
-import type { AgentsConfig, ProvidersConfig, AgentId } from '@tday/shared';
+import { detectGeneric, INSTALL_SPECS } from './agent-utils.js';
+import type { AgentProfile, AgentsConfig, ProvidersConfig, AgentId } from '@tday/shared';
 
 export const TDAY_DIR = join(homedir(), '.tday');
 
@@ -58,8 +58,70 @@ export function readJson<T>(path: string, fallback: T): T {
   }
 }
 
+function builtinProfile(agentId: AgentId, legacy?: { providerId?: string; model?: string; bin?: string; args?: string[] }): AgentProfile {
+  const spec = INSTALL_SPECS[agentId];
+  return {
+    id: agentId,
+    baseAgentId: agentId,
+    displayName: spec?.displayName ?? agentId,
+    providerId: legacy?.providerId,
+    model: legacy?.model,
+    bin: legacy?.bin,
+    args: legacy?.args,
+    isBuiltinProfile: true,
+  };
+}
+
+function ensureBuiltinProfiles(profiles: AgentProfile[], legacyAgents?: AgentsConfig['agents']): AgentProfile[] {
+  const seen = new Set(profiles.map((p) => p.id));
+  const next = [...profiles];
+  for (const agentId of Object.keys(INSTALL_SPECS) as AgentId[]) {
+    if (seen.has(agentId)) continue;
+    const legacy = legacyAgents?.[agentId];
+    next.push(builtinProfile(agentId, legacy));
+  }
+  return next;
+}
+
+export function normalizeAgentsConfig(raw: AgentsConfig): AgentsConfig {
+  if (Array.isArray(raw.profiles)) {
+    const profiles = ensureBuiltinProfiles(
+      raw.profiles
+        .filter((p): p is AgentProfile =>
+          !!p &&
+          typeof p === 'object' &&
+          typeof p.id === 'string' &&
+          typeof p.baseAgentId === 'string' &&
+          typeof p.displayName === 'string',
+        )
+        .map((p) => ({
+          ...p,
+          displayName: p.displayName.trim() || p.id,
+        })),
+      raw.agents,
+    );
+    const defaultProfileId =
+      raw.defaultProfileId && profiles.some((p) => p.id === raw.defaultProfileId)
+        ? raw.defaultProfileId
+        : profiles[0]?.id ?? 'pi';
+    return { version: 2, defaultProfileId, profiles };
+  }
+
+  const profiles = ensureBuiltinProfiles(
+    (Object.keys(INSTALL_SPECS) as AgentId[]).map((agentId) => builtinProfile(agentId, raw.agents?.[agentId])),
+    raw.agents,
+  );
+  const defaultProfileId = raw.defaultAgentId ?? 'pi';
+  return { version: 2, defaultProfileId, profiles };
+}
+
 export function loadAgents(): AgentsConfig {
-  return readJson<AgentsConfig>(join(TDAY_DIR, 'agents.json'), {});
+  return normalizeAgentsConfig(readJson<AgentsConfig>(join(TDAY_DIR, 'agents.json'), {}));
+}
+
+export function saveAgents(next: AgentsConfig): void {
+  if (!existsSync(TDAY_DIR)) mkdirSync(TDAY_DIR, { recursive: true });
+  writeFileSync(join(TDAY_DIR, 'agents.json'), JSON.stringify(normalizeAgentsConfig(next), null, 2) + '\n');
 }
 
 export function loadProviders(): ProvidersConfig {
@@ -82,16 +144,16 @@ export function initDefaultConfigs(): void {
     // Probe PATH for the best available agent so that users who already have
     // codex, claude-code, etc. installed don't get an unwanted Pi auto-install.
     const bestDefault = detectBestDefaultAgent();
-    const agentsConfig: Record<string, unknown> = {
-      agents: {
-        pi: { bin: 'pi', args: [], providerId: 'deepseek' },
-      },
+    const agentsConfig: AgentsConfig = {
+      version: 2,
+      defaultProfileId: bestDefault,
+      profiles: (Object.keys(INSTALL_SPECS) as AgentId[]).map((agentId) =>
+        builtinProfile(
+          agentId,
+          agentId === 'pi' ? { bin: 'pi', args: [], providerId: 'deepseek' } : undefined,
+        ),
+      ),
     };
-    // Only write the field when it's not the implicit default so existing
-    // consumers that fall back to 'pi' on missing key still work.
-    if (bestDefault !== 'pi') {
-      agentsConfig.defaultAgentId = bestDefault;
-    }
     writeFileSync(agentsPath, JSON.stringify(agentsConfig, null, 2) + '\n');
   }
 

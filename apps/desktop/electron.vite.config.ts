@@ -4,6 +4,9 @@ import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 
 const bundleWorkspace = { exclude: ['@tday/shared', '@tday/adapter-pi'] };
+const desktopNodeModules = resolve(__dirname, 'node_modules');
+const reactEntry = resolve(desktopNodeModules, 'react');
+const reactDomEntry = resolve(desktopNodeModules, 'react-dom');
 
 // Read the desktop app's version once at build time so the renderer can
 // display it without a runtime IPC round-trip.
@@ -39,8 +42,18 @@ export default defineConfig({
         input: { index: resolve(__dirname, 'src/renderer/index.html') },
       },
     },
+    optimizeDeps: {
+      include: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+    },
     resolve: {
-      alias: { '@renderer': resolve(__dirname, 'src/renderer/src') },
+      dedupe: ['react', 'react-dom'],
+      alias: {
+        '@renderer': resolve(__dirname, 'src/renderer/src'),
+        react: reactEntry,
+        'react-dom': reactDomEntry,
+        'react/jsx-runtime': resolve(reactEntry, 'jsx-runtime.js'),
+        'react/jsx-dev-runtime': resolve(reactEntry, 'jsx-dev-runtime.js'),
+      },
     },
   },
 });

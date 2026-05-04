@@ -28,6 +28,19 @@ export function createWindow(): void {
   win.on('ready-to-show', () => win.show());
   win.on('close', () => app.quit());
   win.on('closed', () => { mainWindow = null; });
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error('[tday] renderer failed to load', { errorCode, errorDescription, validatedURL });
+  });
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[tday] renderer process gone', details);
+  });
+  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const levels = ['debug', 'info', 'warn', 'error'];
+    const label = levels[level] ?? String(level);
+    console[label === 'error' ? 'error' : label === 'warn' ? 'warn' : 'log'](
+      `[renderer:${label}] ${message} (${sourceId}:${line})`,
+    );
+  });
   win.webContents.setWindowOpenHandler((details) => {
     void shell.openExternal(details.url);
     return { action: 'deny' };

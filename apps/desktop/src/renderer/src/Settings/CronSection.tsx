@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import type { AgentId, AgentInfo, CronJob, CronJobStats, CoWorker } from '@tday/shared';
+import type { AgentInfo, CronJob, CronJobStats, CoWorker } from '@tday/shared';
 import { MiniMarkdown, Field } from './shared';
 import {
-  CRON_AGENT_IDS,
-  CRON_AGENT_LABEL,
   CRON_AGENT_COLOR,
   describeCronExpr,
   fmtCronTime,
@@ -144,15 +142,22 @@ export function CronSection({
             <Field label="Agent">
               <select
                 className="input"
-                value={draft.agentId ?? 'codex'}
-                onChange={(e) => onDraftChange({ agentId: e.target.value as AgentId })}
+                value={draft.agentProfileId ?? agents.find((a) => a.isDefault)?.id ?? agents[0]?.id ?? 'pi'}
+                onChange={(e) => {
+                  const selected = agents.find((a) => a.id === e.target.value);
+                  if (!selected) return;
+                  onDraftChange({
+                    agentId: selected.baseAgentId,
+                    agentProfileId: selected.id,
+                    agentProfileName: selected.displayName,
+                  });
+                }}
               >
-                {CRON_AGENT_IDS.map((id) => {
-                  const info = agents.find((a) => a.id === id);
-                  const available = info?.detect.available ?? false;
+                {agents.map((info) => {
+                  const available = info.detect.available ?? false;
                   return (
-                    <option key={id} value={id} disabled={!available}>
-                      {CRON_AGENT_LABEL[id] ?? id}
+                    <option key={info.id} value={info.id} disabled={!available}>
+                      {info.displayName}
                       {!available ? ' (not installed)' : ''}
                     </option>
                   );
@@ -417,7 +422,7 @@ export function CronSection({
                                 color: CRON_AGENT_COLOR[job.agentId] ?? '#71717a',
                               }}
                             >
-                              {CRON_AGENT_LABEL[job.agentId] ?? job.agentId}
+                              {job.agentProfileName ?? job.agentId}
                             </span>
                             <span
                               className={`rounded px-1.5 text-[9px] uppercase tracking-wider ${

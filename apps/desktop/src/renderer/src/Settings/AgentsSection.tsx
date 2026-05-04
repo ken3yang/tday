@@ -1,43 +1,40 @@
 import { useState } from 'react';
-import type { AgentId, AgentInfo, AgentsConfig, CronJob, ProvidersConfig } from '@tday/shared';
+import type { AgentInfo, CronJob, ProvidersConfig } from '@tday/shared';
 import { presetForKind } from '@tday/shared';
 import { ProviderLogo } from '../ProviderLogo';
 import { describeCronExpr, CRON_AGENT_COLOR } from './cron-helpers';
 
 const SHARED_KEY = 'tday:sharedAgentConfig';
 
-function buildAgentsCfg(agentList: AgentInfo[]): AgentsConfig {
-  const defaultAgentId = (agentList.find((a) => a.isDefault)?.id ?? 'pi') as AgentId;
-  return {
-    defaultAgentId,
-    agents: Object.fromEntries(
-      agentList.map((a) => [
-        a.id,
-        { providerId: a.providerId || undefined, model: a.model || undefined },
-      ]),
-    ) as AgentsConfig['agents'],
-  };
+function makeDuplicateName(displayName: string, agents: AgentInfo[]): string {
+  const base = `${displayName} Duplicate`;
+  const used = new Set(agents.map((a) => a.displayName));
+  if (!used.has(base)) return base;
+  let i = 2;
+  while (used.has(`${base} ${i}`)) i++;
+  return `${base} ${i}`;
 }
 
 export interface AgentsSectionProps {
   agents: AgentInfo[];
   onAgentsChange: (agents: AgentInfo[]) => void;
+  onAgentsPersist: (agents: AgentInfo[]) => Promise<void>;
   cfg: ProvidersConfig | null;
   shared: boolean;
   onSharedChange: (val: boolean) => void;
   cronJobs: CronJob[];
   home: string;
-  onNavigateToCron: (agentId: AgentId, job?: CronJob) => void;
+  onNavigateToCron: (agent: AgentInfo, job?: CronJob) => void;
 }
 
 export function AgentsSection({
   agents,
   onAgentsChange,
+  onAgentsPersist,
   cfg,
   shared,
   onSharedChange,
   cronJobs,
-  home,
   onNavigateToCron,
 }: AgentsSectionProps) {
   const [activeAgentId, setActiveAgentId] = useState<string>('');
@@ -45,14 +42,18 @@ export function AgentsSection({
   const [installPct, setInstallPct] = useState(0);
 
   const persistAgents = (next: AgentInfo[]) => {
-    void window.tday.saveAgents(buildAgentsCfg(next));
+    onAgentsChange(next);
+    void onAgentsPersist(next);
   };
 
   const bindProvider = (agentId: string, providerId: string) => {
     const next = shared
-      ? agents.map((a) => ({ ...a, providerId: providerId || undefined }))
-      : agents.map((a) => (a.id === agentId ? { ...a, providerId: providerId || undefined } : a));
-    onAgentsChange(next);
+      ? agents.map((a) => ({ ...a, providerId: providerId || undefined, missingProvider: false }))
+      : agents.map((a) => (
+        a.id === agentId
+          ? { ...a, providerId: providerId || undefined, missingProvider: false }
+          : a
+      ));
     persistAgents(next);
   };
 
@@ -63,12 +64,23 @@ export function AgentsSection({
     onAgentsChange(next);
   };
 
-  const flushAgentModel = () => persistAgents(agents);
+  const flushAgentModel = () => void onAgentsPersist(agents);
 
-  const setAsDefault = (agentId: AgentId) => {
-    const next = agents.map((a) => ({ ...a, isDefault: a.id === agentId }));
-    onAgentsChange(next);
+  const setAgentName = (agentId: string, displayName: string) => {
+    onAgentsChange(agents.map((a) => (a.id === agentId ? { ...a, displayName } : a)));
+  };
+
+  const flushAgentName = (agentId: string) => {
+    const next = agents.map((a) => {
+      if (a.id !== agentId) return a;
+      const trimmed = a.displayName.trim() || (a.baseAgentId === 'pi' ? 'Pi' : a.displayName);
+      return { ...a, displayName: trimmed };
+    });
     persistAgents(next);
+  };
+
+  const setAsDefault = (profileId: string) => {
+    persistAgents(agents.map((a) => ({ ...a, isDefault: a.id === profileId })));
   };
 
   const toggleShared = (next: boolean) => {
@@ -77,31 +89,52 @@ export function AgentsSection({
     if (next) {
       const first = agents[0];
       if (first) {
-        const synced = agents.map((a) => ({
+        persistAgents(agents.map((a) => ({
           ...a,
           providerId: first.providerId,
           model: first.model,
-        }));
-        onAgentsChange(synced);
-        persistAgents(synced);
+          missingProvider: first.missingProvider,
+        })));
       }
     }
   };
 
-  const installAgent = async (agentId: string, action: 'install' | 'update' | 'uninstall') => {
-    setInstallingId(agentId);
+  const duplicateAgent = (agent: AgentInfo) => {
+    const duplicate: AgentInfo = {
+      ...agent,
+      id: `agent-${Date.now()}`,
+      displayName: makeDuplicateName(agent.displayName, agents),
+      isDefault: false,
+      isBuiltinProfile: false,
+    };
+    const next = [...agents, duplicate];
+    persistAgents(next);
+    setActiveAgentId(duplicate.id);
+  };
+
+  const deleteAgent = (agent: AgentInfo) => {
+    if (agent.isBuiltinProfile) return;
+    const next = agents.filter((a) => a.id !== agent.id);
+    const normalized = next.map((a, index) => ({
+      ...a,
+      isDefault: agent.isDefault ? index === 0 : a.isDefault,
+    }));
+    persistAgents(normalized);
+    setActiveAgentId(normalized[0]?.id ?? '');
+  };
+
+  const installAgent = async (baseAgentId: AgentInfo['baseAgentId'], action: 'install' | 'update' | 'uninstall') => {
+    setInstallingId(baseAgentId);
     setInstallPct(0);
     const off = window.tday.onInstallProgress((e) => {
-      if (e.agentId !== agentId) return;
+      if (e.agentId !== baseAgentId) return;
       if (typeof e.percent === 'number') setInstallPct(e.percent);
       if (e.kind === 'done') setInstallPct(100);
     });
     try {
-      const id = agentId as AgentId;
-      if (action === 'install') await window.tday.installAgent(id);
-      else if (action === 'update') await window.tday.updateAgent(id);
-      else await window.tday.uninstallAgent(id);
-      // Refresh agents list after install/uninstall
+      if (action === 'install') await window.tday.installAgent(baseAgentId);
+      else if (action === 'update') await window.tday.updateAgent(baseAgentId);
+      else await window.tday.uninstallAgent(baseAgentId);
       const refreshed = await window.tday.listAgents() as AgentInfo[];
       onAgentsChange(refreshed);
     } finally {
@@ -112,7 +145,6 @@ export function AgentsSection({
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
-      {/* Left: agent list */}
       <div className="flex w-56 shrink-0 flex-col overflow-hidden border-r border-zinc-800/60">
         <div className="scroll-themed flex-1 overflow-y-auto p-2">
           {agents.map((a) => {
@@ -145,7 +177,6 @@ export function AgentsSection({
             );
           })}
         </div>
-        {/* Shared toggle pinned at bottom */}
         <div className="shrink-0 border-t border-zinc-800/60 p-3">
           <label className="flex cursor-pointer items-center gap-2 text-[11px] text-zinc-400">
             <input
@@ -155,11 +186,10 @@ export function AgentsSection({
             />
             <span className="flex-1">Shared provider</span>
           </label>
-          <div className="mt-0.5 text-[10px] text-zinc-600">applies to all agents</div>
+          <div className="mt-0.5 text-[10px] text-zinc-600">applies to all profiles</div>
         </div>
       </div>
 
-      {/* Right: agent details */}
       <div className="scroll-themed flex-1 overflow-y-auto p-5 text-xs">
         {(() => {
           const a = agents.find((x) => x.id === (activeAgentId || agents[0]?.id));
@@ -167,11 +197,10 @@ export function AgentsSection({
           const bound = cfg?.profiles.find((p) => p.id === a.providerId);
           const boundPreset = bound ? presetForKind(bound.kind) : null;
           const modelOptions = boundPreset?.models ?? [];
-          const isInstalling = installingId === a.id;
-          const agentCrons = cronJobs.filter((j) => j.agentId === a.id);
+          const isInstalling = installingId === a.baseAgentId;
+          const agentCrons = cronJobs.filter((j) => (j.agentProfileId ?? j.agentId) === a.id || j.agentId === a.baseAgentId);
           return (
             <div className="space-y-4">
-              {/* Header */}
               <div className="flex items-center gap-3 border-b border-zinc-800/40 pb-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zinc-800/60 text-sm font-semibold text-zinc-200">
                   {a.displayName.charAt(0)}
@@ -188,9 +217,17 @@ export function AgentsSection({
                         {a.npmPackage ? 'not installed' : 'not on PATH'}
                       </span>
                     )}
+                    {a.isBuiltinProfile ? (
+                      <span className="rounded bg-sky-500/20 px-1.5 text-[10px] text-sky-300">built-in</span>
+                    ) : null}
                     {a.isDefault ? (
                       <span className="rounded bg-fuchsia-500/20 px-1.5 text-[10px] text-fuchsia-300">
                         default
+                      </span>
+                    ) : null}
+                    {a.missingProvider ? (
+                      <span className="rounded bg-amber-500/20 px-1.5 text-[10px] text-amber-300">
+                        provider missing
                       </span>
                     ) : null}
                   </div>
@@ -199,9 +236,25 @@ export function AgentsSection({
                   ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    onClick={() => duplicateAgent(a)}
+                    className="rounded-md border border-zinc-700 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                    title="Duplicate this agent profile"
+                  >
+                    Duplicate agent
+                  </button>
+                  {!a.isBuiltinProfile ? (
+                    <button
+                      onClick={() => deleteAgent(a)}
+                      className="rounded-md border border-zinc-800 px-2 py-1 text-[11px] text-zinc-500 hover:bg-rose-500/10 hover:text-rose-300"
+                      title="Delete profile"
+                    >
+                      Delete
+                    </button>
+                  ) : null}
                   {!a.detect.available && a.npmPackage ? (
                     <button
-                      onClick={() => void installAgent(a.id, 'install')}
+                      onClick={() => void installAgent(a.baseAgentId, 'install')}
                       disabled={isInstalling}
                       className="rounded-md bg-fuchsia-500/90 px-3 py-1 text-xs font-medium text-white hover:bg-fuchsia-500 disabled:opacity-60"
                     >
@@ -211,7 +264,7 @@ export function AgentsSection({
                   {a.detect.available && a.npmPackage ? (
                     <>
                       <button
-                        onClick={() => void installAgent(a.id, 'update')}
+                        onClick={() => void installAgent(a.baseAgentId, 'update')}
                         disabled={isInstalling}
                         className="rounded-md border border-zinc-700 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800 disabled:opacity-60"
                         title="Update to latest"
@@ -219,10 +272,10 @@ export function AgentsSection({
                         {isInstalling ? `${installPct}%` : 'Update'}
                       </button>
                       <button
-                        onClick={() => void installAgent(a.id, 'uninstall')}
+                        onClick={() => void installAgent(a.baseAgentId, 'uninstall')}
                         disabled={isInstalling}
                         className="rounded-md border border-zinc-800 px-2 py-1 text-[11px] text-zinc-500 hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-60"
-                        title="Uninstall"
+                        title="Uninstall base harness"
                       >
                         Uninstall
                       </button>
@@ -240,7 +293,26 @@ export function AgentsSection({
                 </div>
               ) : null}
 
-              {/* Provider + Model */}
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="mb-1 block text-[10px] uppercase tracking-wider text-zinc-500">
+                    Profile name
+                  </span>
+                  <input
+                    className="input"
+                    value={a.displayName}
+                    onChange={(e) => setAgentName(a.id, e.target.value)}
+                    onBlur={() => flushAgentName(a.id)}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[10px] uppercase tracking-wider text-zinc-500">
+                    Base harness
+                  </span>
+                  <input className="input" value={a.baseAgentId} disabled />
+                </label>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <label className="block">
                   <span className="mb-1 block text-[10px] uppercase tracking-wider text-zinc-500">
@@ -288,7 +360,6 @@ export function AgentsSection({
                 </label>
               </div>
 
-              {/* Default for new tabs */}
               <div className="flex items-center justify-end border-b border-zinc-800/40 pb-3">
                 <label className="flex cursor-pointer items-center gap-2 text-[11px] text-zinc-400">
                   <input
@@ -301,27 +372,26 @@ export function AgentsSection({
                 </label>
               </div>
 
-              {/* Cron jobs for this agent */}
               <div>
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-[10px] uppercase tracking-wider text-zinc-500">
                     Scheduled jobs
                   </span>
                   <button
-                    onClick={() => onNavigateToCron(a.id as AgentId)}
+                    onClick={() => onNavigateToCron(a)}
                     className="text-[10px] text-fuchsia-400 hover:underline"
                   >
                     + Add
                   </button>
                 </div>
                 {agentCrons.length === 0 ? (
-                  <p className="text-[11px] text-zinc-600">No cron jobs for this agent.</p>
+                  <p className="text-[11px] text-zinc-600">No cron jobs for this profile.</p>
                 ) : (
                   <div className="space-y-1">
                     {agentCrons.map((job) => (
                       <button
                         key={job.id}
-                        onClick={() => onNavigateToCron(a.id as AgentId, job)}
+                        onClick={() => onNavigateToCron(a, job)}
                         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] text-zinc-300 transition-colors hover:bg-zinc-800/60"
                       >
                         <span

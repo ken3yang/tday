@@ -27,7 +27,7 @@ export function useAgentInstall(): AgentInstallHook {
   const refreshAgents = useCallback(async (setAgentList: (list: AgentInfo[]) => void): Promise<boolean> => {
     const list = (await window.tday.listAgents()) as AgentInfo[];
     setAgentList(list);
-    return !!(list.find((a: AgentInfo) => a.id === 'pi')?.detect?.available);
+    return !!(list.find((a: AgentInfo) => a.baseAgentId === 'pi')?.detect?.available);
   }, []);
 
   const installPi = useCallback(async (setAgentList: (list: AgentInfo[]) => void): Promise<void> => {
@@ -70,7 +70,7 @@ export function useAgentInstall(): AgentInstallHook {
     checkedRef.current = true;
 
     // If the configured default agent is already available, nothing to do.
-    if (agentList.find((a: AgentInfo) => a.id === defaultAgentId)?.detect?.available) return;
+    if (agentList.find((a: AgentInfo) => a.baseAgentId === defaultAgentId && a.isDefault)?.detect?.available) return;
 
     // Only auto-install Pi when Pi is the configured (or implicit) default.
     // If the user has explicitly chosen another agent, respect that and do not

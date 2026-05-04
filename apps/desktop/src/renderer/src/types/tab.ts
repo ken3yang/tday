@@ -1,4 +1,4 @@
-import type { AgentId } from '@tday/shared';
+import type { AgentId, AgentProfileId } from '@tday/shared';
 
 export interface Tab {
   id: string;
@@ -10,6 +10,8 @@ export interface Tab {
   epoch: number;
   title: string;
   agentId: AgentId;
+  agentProfileId?: AgentProfileId;
+  agentProfileName?: string;
   cwd: string;
   /** What's in the cwd input right now — only commits to `cwd` on Enter/Browse. */
   cwdDraft: string;
@@ -29,6 +31,8 @@ export interface PersistedTab {
   id: string;
   title: string;
   agentId: AgentId;
+  agentProfileId?: AgentProfileId;
+  agentProfileName?: string;
   cwd: string;
   agentSessionId?: string;
 }
@@ -49,12 +53,20 @@ export function resetTabCounter(n: number): void {
   _nextId = n;
 }
 
-export function newTab(cwd: string, agentId: AgentId = 'pi', title?: string): Tab {
+export function newTab(
+  cwd: string,
+  agentId: AgentId = 'pi',
+  title?: string,
+  agentProfileId?: AgentProfileId,
+  agentProfileName?: string,
+): Tab {
   return {
     id: `t${_nextId++}`,
     epoch: 0,
-    title: title ?? agentTitle(agentId),
+    title: title ?? agentProfileName ?? agentTitle(agentId),
     agentId,
+    agentProfileId,
+    agentProfileName,
     cwd,
     cwdDraft: cwd,
   };
@@ -105,6 +117,8 @@ export function savePersistedTabs(tabs: Tab[]): void {
     id: t.id,
     title: t.title,
     agentId: t.agentId,
+    agentProfileId: t.agentProfileId,
+    agentProfileName: t.agentProfileName,
     cwd: t.cwd,
     agentSessionId: t.agentSessionId,
   }));

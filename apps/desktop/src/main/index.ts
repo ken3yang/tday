@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import { electronApp } from '@electron-toolkit/utils';
 import { spawn as spawnPty } from 'node-pty';
+import type { IPty } from 'node-pty';
 import { spawn as spawnChild } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -50,7 +51,7 @@ import { listAllCoworkers, upsertCoworker, deleteCoworker, resetBuiltinCoworker,
 import { PiAdapter } from '@tday/adapter-pi';
 import { PATH_SEP, augmentPath } from './path-utils.js';
 import { normalizeProvidersConfig, appendNoProxy } from './provider-utils.js';
-import { TDAY_DIR, loadAgents, loadProviders, initDefaultConfigs } from './config.js';
+import { TDAY_DIR, loadAgents, saveAgents, loadProviders, initDefaultConfigs } from './config.js';
 import {
   semverAtLeast,
   INSTALL_SPECS,
@@ -76,6 +77,8 @@ function fireCronJob(job: CronJob): void {
   const event: CronFireEvent = {
     jobId: job.id,
     agentId: job.agentId,
+    agentProfileId: job.agentProfileId,
+    agentProfileName: job.agentProfileName,
     cwd: job.cwd,
     // Prepend CoWorker system prompt if one is assigned to this job.
     prompt: buildEffectivePrompt(job.coworkerId, job.prompt),
@@ -129,29 +132,33 @@ function registerIpc(): void {
   // Agent list & config
   ipcMain.handle(IPC.agentsList, (): AgentInfo[] => {
     const agents = loadAgents();
-    const defaultId = agents.defaultAgentId ?? 'pi';
+    const providers = loadProviders();
+    const profiles = agents.profiles ?? [];
+    const defaultId = agents.defaultProfileId ?? 'pi';
     const out: AgentInfo[] = [];
-    for (const [id, spec] of Object.entries(INSTALL_SPECS) as Array<[AgentId, AgentInstallSpec | undefined]>) {
-      const settings = agents.agents?.[id] ?? {};
-      const bin = settings.bin ?? spec?.bin ?? id;
-      const detect = id === 'pi' ? PiAdapter.detect(bin) : detectGeneric(bin);
+    for (const profile of profiles) {
+      const spec = INSTALL_SPECS[profile.baseAgentId];
+      const bin = profile.bin ?? spec?.bin ?? profile.baseAgentId;
+      const detect = profile.baseAgentId === 'pi' ? PiAdapter.detect(bin) : detectGeneric(bin);
       out.push({
-        id,
-        displayName: spec?.displayName ?? id,
+        id: profile.id,
+        baseAgentId: profile.baseAgentId,
+        displayName: profile.displayName,
         description: spec?.description,
         npmPackage: spec?.npmPackage,
         detect,
-        providerId: settings.providerId,
-        model: settings.model,
-        isDefault: id === defaultId,
+        providerId: profile.providerId,
+        model: profile.model,
+        isDefault: profile.id === defaultId,
+        isBuiltinProfile: profile.isBuiltinProfile,
+        missingProvider: !!(profile.providerId && !providers.profiles.some((p) => p.id === profile.providerId)),
       });
     }
     return out;
   });
 
   ipcMain.handle(IPC.agentsSave, (_e, next: AgentsConfig) => {
-    if (!existsSync(TDAY_DIR)) mkdirSync(TDAY_DIR, { recursive: true });
-    writeFileSync(join(TDAY_DIR, 'agents.json'), JSON.stringify(next, null, 2) + '\n');
+    saveAgents(next);
     return { ok: true };
   });
 
@@ -174,11 +181,18 @@ function registerIpc(): void {
 
     const agents = loadAgents();
     const providers = loadProviders();
-    const agentConf = agents.agents?.[req.agentId] ?? {};
-    const providerId = req.providerId ?? agentConf.providerId ?? providers.default;
+    const profile =
+      (req.agentProfileId
+        ? agents.profiles?.find((p) => p.id === req.agentProfileId)
+        : undefined)
+      ?? agents.profiles?.find((p) => p.id === req.agentId);
+    const baseAgentId = profile?.baseAgentId ?? req.agentId;
+    const providerId = req.providerId ?? profile?.providerId ?? providers.default;
     const provider = providers.profiles.find((p) => p.id === providerId) ?? providers.profiles[0];
     const effectiveProvider =
-      provider && agentConf.model ? { ...provider, model: agentConf.model } : provider;
+      provider
+        ? { ...provider, model: req.model ?? profile?.model ?? provider.model }
+        : provider;
 
     // Apply CoWorker system prompt if one is selected for this tab
     if (req.coworkerId) {
@@ -189,18 +203,18 @@ function registerIpc(): void {
     const baseEnv = { ...process.env };
     await ensureFd(baseEnv);
 
-    const spec = INSTALL_SPECS[req.agentId];
-    const bin = agentConf.bin ?? spec?.bin ?? req.agentId;
+    const spec = INSTALL_SPECS[baseAgentId];
+    const bin = profile?.bin ?? spec?.bin ?? baseAgentId;
 
     let cmd: string;
     let args: string[];
     let env: Record<string, string>;
     let launchCwd: string;
 
-    if (req.agentId === 'pi') {
+    if (baseAgentId === 'pi') {
       const launch = PiAdapter.buildLaunch({
-        bin: agentConf.bin,
-        extraArgs: agentConf.args,
+        bin: profile?.bin,
+        extraArgs: profile?.args,
         provider: effectiveProvider,
         cwd,
         env: baseEnv,
@@ -216,19 +230,19 @@ function registerIpc(): void {
     } else {
       const piLike = PiAdapter.buildLaunch({
         bin,
-        extraArgs: agentConf.args,
+        extraArgs: profile?.args,
         provider: effectiveProvider,
         cwd,
         env: baseEnv,
       });
       cmd = piLike.cmd;
-      const userArgs = (agentConf.args ?? []).slice();
+      const userArgs = (profile?.args ?? []).slice();
       const gatewayResolution =
         effectiveProvider
-          ? await localGatewayManager.resolve({ agentId: req.agentId, provider: effectiveProvider })
+          ? await localGatewayManager.resolve({ agentId: baseAgentId, provider: effectiveProvider })
           : null;
       const modelArgs = modelFlagsFor(
-        req.agentId,
+        baseAgentId,
         effectiveProvider?.model,
         effectiveProvider?.kind,
         effectiveProvider?.apiStyle,
@@ -237,7 +251,7 @@ function registerIpc(): void {
       args = [...modelArgs, ...userArgs];
 
       if (req.agentSessionId) {
-        switch (req.agentId) {
+        switch (baseAgentId) {
           case 'claude-code': args = ['--resume', req.agentSessionId, ...args]; break;
           case 'codex':       args = ['resume', req.agentSessionId]; break;
           case 'opencode':    args = ['--session', req.agentSessionId, ...args]; break;
@@ -246,7 +260,7 @@ function registerIpc(): void {
       }
 
       const initialPrompt = req.initialPrompt?.trim();
-      if (req.isCronJob && req.agentId === 'opencode' && !req.agentSessionId) {
+      if (req.isCronJob && baseAgentId === 'opencode' && !req.agentSessionId) {
         args = ['run', ...args];
       }
 
@@ -255,7 +269,7 @@ function registerIpc(): void {
         ...(req.isCronJob ? (['opencode'] as AgentId[]) : []),
       ];
       const sentViaCliArg = !!(
-        initialPrompt && !req.agentSessionId && CLI_PROMPT_AGENTS.includes(req.agentId)
+        initialPrompt && !req.agentSessionId && CLI_PROMPT_AGENTS.includes(baseAgentId)
       );
       if (sentViaCliArg && initialPrompt) args = [...args, initialPrompt];
 
@@ -280,13 +294,21 @@ function registerIpc(): void {
     // or .bat files directly — wrap them in cmd.exe /c if needed.
     const { file: spawnFile, args: spawnArgs } = windowsCmdWrap(resolved.resolved, args);
 
-    const pty = spawnPty(spawnFile, spawnArgs, {
-      name: 'xterm-256color',
-      cols: req.cols,
-      rows: req.rows,
-      cwd: launchCwd,
-      env,
-    });
+    let pty: IPty;
+    try {
+      pty = spawnPty(spawnFile, spawnArgs, {
+        name: 'xterm-256color',
+        cols: req.cols,
+        rows: req.rows,
+        cwd: launchCwd,
+        env,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `failed to start ${baseAgentId} (${spawnFile})\ncwd: ${launchCwd}\n${message}`,
+      );
+    }
 
     ptys.set(req.tabId, pty);
 
@@ -297,14 +319,14 @@ function registerIpc(): void {
       ...(req.isCronJob ? (['opencode', 'pi'] as AgentId[]) : []),
     ];
     const needsPtyWrite =
-      initialPromptForPty && !req.agentSessionId && !_cliAgents.includes(req.agentId);
+      initialPromptForPty && !req.agentSessionId && !_cliAgents.includes(baseAgentId);
     if (needsPtyWrite && initialPromptForPty) {
       const sanitized = initialPromptForPty
         .replace(/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/g, ' ')
         .replace(/ {2,}/g, ' ');
       const bracketedPayload = `\x1b[200~${sanitized}\x1b[201~\r`;
       const tabId = req.tabId;
-      const graceMs = req.agentId === 'opencode' ? 8000 : 3500;
+      const graceMs = baseAgentId === 'opencode' ? 8000 : 3500;
       setTimeout(() => { ptys.get(tabId)?.write(bracketedPayload); }, graceMs);
     }
 

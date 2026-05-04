@@ -3,11 +3,13 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SerializeAddon } from '@xterm/addon-serialize';
-import type { AgentId } from '@tday/shared';
+import type { AgentId, AgentProfileId } from '@tday/shared';
 
 interface Props {
   tabId: string;
   agentId: AgentId;
+  agentProfileId?: AgentProfileId;
+  agentProfileName?: string;
   cwd?: string;
   /** Whether this tab is currently visible. */
   active?: boolean;
@@ -33,9 +35,58 @@ interface Props {
 // Agents that support native session resume.
 const RESUME_CAPABLE: AgentId[] = ['claude-code', 'codex', 'opencode'];
 
-export function Terminal({ tabId, agentId, cwd, active, agentSessionId, onAgentSessionId, initialPrompt, isCronJob, coworkerId }: Props) {
+function safeFit(term: XTerm, fit: FitAddon): boolean {
+  try {
+    fit.fit();
+    return Number.isFinite(term.cols) && Number.isFinite(term.rows);
+  } catch {
+    return false;
+  }
+}
+
+async function waitForFit(term: XTerm, fit: FitAddon, attempts = 4): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    if (safeFit(term, fit)) return;
+  }
+}
+
+function showSpawnError(container: HTMLDivElement, agentId: AgentId, message: string, isWindows: boolean): void {
+  const hint =
+    `set ~/.tday/agents.json -> { "agents": { "${agentId}": { "bin": "/absolute/path/to/${
+      agentId === 'claude-code' ? 'claude' : agentId === 'copilot' ? 'copilot' : agentId
+    }" } } }`;
+  const windowsHint = isWindows
+    ? 'Windows tip: make sure the agent binary is on PATH. If installed via npm, try `npm install -g <agent>` and restart Tday.'
+    : '';
+
+  const panel = document.createElement('div');
+  panel.className = 'flex h-full w-full items-center justify-center bg-black px-6';
+  panel.innerHTML = `
+    <div style="width:min(760px,100%);border:1px solid rgba(244,63,94,0.24);border-radius:16px;background:rgba(24,24,27,0.92);padding:18px 20px;color:#e4e4e7;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">
+      <div style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#fb7185;">Agent launch failed</div>
+      <pre style="margin:10px 0 0;white-space:pre-wrap;font-size:12px;line-height:1.55;color:#f4f4f5;">${message.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</pre>
+      <div style="margin-top:12px;font-size:12px;line-height:1.55;color:#a1a1aa;">${hint.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</div>
+      ${windowsHint ? `<div style="margin-top:8px;font-size:12px;line-height:1.55;color:#facc15;">${windowsHint.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</div>` : ''}
+    </div>
+  `;
+  container.replaceChildren(panel);
+}
+
+export function Terminal({
+  tabId,
+  agentId,
+  agentProfileId,
+  agentProfileName,
+  cwd,
+  active,
+  agentSessionId,
+  onAgentSessionId,
+  initialPrompt,
+  isCronJob,
+  coworkerId,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const spawnedRef = useRef(false);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   // Keep latest callbacks in refs so cleanup can read without re-running effects.
@@ -43,8 +94,9 @@ export function Terminal({ tabId, agentId, cwd, active, agentSessionId, onAgentS
   sessionIdRef.current = onAgentSessionId;
 
   useEffect(() => {
-    if (!containerRef.current || spawnedRef.current) return;
-    spawnedRef.current = true;
+    const container = containerRef.current;
+    if (!container) return;
+    let disposed = false;
 
     const term = new XTerm({
       fontFamily:
@@ -64,9 +116,15 @@ export function Terminal({ tabId, agentId, cwd, active, agentSessionId, onAgentS
     term.loadAddon(fit);
     term.loadAddon(serialize);
     term.loadAddon(new WebLinksAddon());
-    term.open(containerRef.current);
-    fit.fit();
-    term.focus();
+    term.open(container);
+    safeFit(term, fit);
+    if (active) {
+      try {
+        term.focus();
+      } catch {
+        // Ignore focus races during dev-mode remounts.
+      }
+    }
     termRef.current = term;
     fitRef.current = fit;
 
@@ -91,15 +149,16 @@ export function Terminal({ tabId, agentId, cwd, active, agentSessionId, onAgentS
     });
 
     const onResize = () => {
+      if (disposed) return;
       // Skip when container is hidden (display:none). FitAddon.fit() is a no-op
       // for zero-width elements, so term.cols retains stale dims — sending
       // resize would fire a spurious SIGWINCH with wrong dimensions.
-      if (!containerRef.current || containerRef.current.offsetWidth === 0) return;
-      fit.fit();
+      if (container.offsetWidth === 0) return;
+      if (!safeFit(term, fit)) return;
       void window.tday.resize(tabId, term.cols, term.rows);
     };
     const ro = new ResizeObserver(onResize);
-    ro.observe(containerRef.current);
+    ro.observe(container);
 
     // Async init: render history (if resuming) then spawn.
     const init = async () => {
@@ -108,13 +167,17 @@ export function Terminal({ tabId, agentId, cwd, active, agentSessionId, onAgentS
       // undefined because actualCellWidth === 0), leaving term.cols at the
       // default 80. Claude-code (Ink) reads process.stdout.columns at startup
       // from the PTY window size — if we spawn with cols=80 it wraps there.
-      await new Promise<void>((res) => requestAnimationFrame(() => { fit.fit(); res(); }));
+      if (active) {
+        await waitForFit(term, fit);
+        if (disposed) return;
+      }
 
       // If we have a session ID, load and render the conversation history
       // so the user sees it immediately before the agent starts.
       if (agentSessionId && RESUME_CAPABLE.includes(agentId) && cwd) {
         try {
           const msgs = await window.tday.readAgentSession(agentId, agentSessionId, cwd);
+          if (disposed) return;
           if (msgs.length > 0) {
             const bar = '\x1b[2m' + '─'.repeat(56) + '\x1b[0m';
             term.writeln(bar);
@@ -139,6 +202,7 @@ export function Terminal({ tabId, agentId, cwd, active, agentSessionId, onAgentS
           // History rendering is best-effort; don't block spawn.
         }
       }
+      if (disposed) return;
 
       const spawnCols = term.cols;
       const spawnRows = term.rows;
@@ -147,6 +211,8 @@ export function Terminal({ tabId, agentId, cwd, active, agentSessionId, onAgentS
         .spawn({
           tabId,
           agentId,
+          agentProfileId,
+          agentProfileName,
           cwd,
           cols: spawnCols,
           rows: spawnRows,
@@ -162,32 +228,43 @@ export function Terminal({ tabId, agentId, cwd, active, agentSessionId, onAgentS
           coworkerId: coworkerId || undefined,
         })
         .catch((err: unknown) => {
+          if (disposed) return;
           const msg = err instanceof Error ? err.message : String(err);
-          term.writeln(`\x1b[31mfailed to spawn:\x1b[0m ${msg}`);
-          term.writeln(
-            `\x1b[2mset ~/.tday/agents.json → { "agents": { "${agentId}": { "bin": "/absolute/path/to/${agentId === 'claude-code' ? 'claude' : agentId === 'copilot' ? 'copilot' : agentId}" } } }\x1b[0m`,
-          );
-          if (isWindows) {
-            term.writeln(
-              `\x1b[33m\u2139\uFE0F Windows tip:\x1b[0m \x1b[2mMake sure the agent binary is on your PATH.` +
-              ` If installed via npm, try running \`npm install -g ${agentId}\` in a terminal,` +
-              ` then restart Tday.  See the README for Windows PATH setup.\x1b[0m`,
-            );
+          try {
+            term.dispose();
+          } catch {
+            // Ignore teardown races while swapping in a plain fallback panel.
           }
+          termRef.current = null;
+          fitRef.current = null;
+          showSpawnError(container, agentId, msg, isWindows);
         });
+      if (disposed) return;
 
       // Re-sync only if the terminal was resized while waiting for spawn.
       // Avoid sending an unnecessary SIGWINCH (which can disrupt claude-code's
       // session initialization) when cols/rows haven't actually changed.
-      fit.fit();
-      if (term.cols !== spawnCols || term.rows !== spawnRows) {
+      const fitted = active && safeFit(term, fit);
+      if (fitted && (term.cols !== spawnCols || term.rows !== spawnRows)) {
         void window.tday.resize(tabId, term.cols, term.rows);
       }
     };
 
-    void init();
+    void init().catch((err: unknown) => {
+      if (disposed) return;
+      const msg = err instanceof Error ? err.message : String(err);
+      try {
+        term.dispose();
+      } catch {
+        // Ignore teardown races while swapping in a plain fallback panel.
+      }
+      termRef.current = null;
+      fitRef.current = null;
+      showSpawnError(container, agentId, `failed to initialize terminal\n${msg}`, window.tday.platform === 'win32');
+    });
 
     return () => {
+      disposed = true;
       ro.disconnect();
       dataDisp.dispose();
       off1();
@@ -209,9 +286,13 @@ export function Terminal({ tabId, agentId, cwd, active, agentSessionId, onAgentS
   useEffect(() => {
     if (!active) return;
     const term = termRef.current;
+    const fit = fitRef.current;
     if (!term) return;
     const raf = requestAnimationFrame(() => {
       try {
+        if (fit && safeFit(term, fit)) {
+          void window.tday.resize(tabId, term.cols, term.rows);
+        }
         term.focus();
       } catch {
         // ignore — element may have unmounted

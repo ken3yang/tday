@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AgentHistoryEntry, AgentId, AgentInfo, CronJob, CronJobStats, CoWorker, ProvidersConfig } from '@tday/shared';
+import type { AgentHistoryEntry, AgentInfo, AgentsConfig, CronJob, CronJobStats, CoWorker, ProvidersConfig } from '@tday/shared';
 import type { Section } from './Settings/types';
 import { SectionTab } from './Settings/shared';
 import { ProvidersSection } from './Settings/ProvidersSection';
@@ -106,14 +106,23 @@ export function Settings({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const handleNavigateToCron = useCallback((agentId: string, job?: CronJob) => {
+  const handleNavigateToCron = useCallback((agent: AgentInfo, job?: CronJob) => {
     setSection('cron');
     if (job) {
       setCronEditId(job.id);
       setCronDraft({ ...job });
     } else {
       setCronEditId('__new__');
-      setCronDraft({ agentId: agentId as AgentId, schedule: '0 9 * * 1-5', enabled: true, cwd: home, prompt: '', name: '' });
+      setCronDraft({
+        agentId: agent.baseAgentId,
+        agentProfileId: agent.id,
+        agentProfileName: agent.displayName,
+        schedule: '0 9 * * 1-5',
+        enabled: true,
+        cwd: home,
+        prompt: '',
+        name: '',
+      });
     }
   }, [home]);
 
@@ -123,9 +132,18 @@ export function Settings({
   }, []);
 
   const handleCronOpenNew = useCallback(() => {
-    const defaultAgent = (agents.find((a) => a.isDefault)?.id ?? agents[0]?.id ?? 'pi') as AgentId;
+    const defaultAgent = agents.find((a) => a.isDefault) ?? agents[0];
     setCronEditId('__new__');
-    setCronDraft({ agentId: defaultAgent, schedule: '0 9 * * 1-5', enabled: true, cwd: home, prompt: '', name: '' });
+    setCronDraft({
+      agentId: defaultAgent?.baseAgentId ?? 'pi',
+      agentProfileId: defaultAgent?.id ?? 'pi',
+      agentProfileName: defaultAgent?.displayName ?? 'Pi',
+      schedule: '0 9 * * 1-5',
+      enabled: true,
+      cwd: home,
+      prompt: '',
+      name: '',
+    });
   }, [agents, home]);
 
   const handleCronOpenEdit = useCallback((job: CronJob) => {
@@ -201,6 +219,24 @@ export function Settings({
     setCronStats(stats);
   }, []);
 
+  const persistAgents = useCallback(async (nextAgents: AgentInfo[]) => {
+    const defaultProfileId = nextAgents.find((a) => a.isDefault)?.id ?? nextAgents[0]?.id ?? 'pi';
+    const payload: AgentsConfig = {
+      version: 2,
+      defaultProfileId,
+      profiles: nextAgents.map((a) => ({
+        id: a.id,
+        baseAgentId: a.baseAgentId,
+        displayName: a.displayName,
+        providerId: a.providerId || undefined,
+        model: a.model || undefined,
+        isBuiltinProfile: a.isBuiltinProfile,
+      })),
+    };
+    await window.tday.saveAgents(payload);
+    onSaved?.();
+  }, [onSaved]);
+
   if (!open) return null;
 
   return (
@@ -236,6 +272,7 @@ export function Settings({
             <AgentsSection
               agents={agents}
               onAgentsChange={setAgents}
+              onAgentsPersist={persistAgents}
               cfg={cfg}
               shared={shared}
               onSharedChange={setShared}

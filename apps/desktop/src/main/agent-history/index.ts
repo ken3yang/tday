@@ -274,6 +274,9 @@ export function mergeTabEntry(tabEntry: TabHistoryEntry): void {
   const entry: AgentHistoryEntry = {
     id: tdayId,
     agentId: tabEntry.agentId,
+    agentProfileId: tabEntry.agentProfileId,
+    agentProfileName: tabEntry.agentProfileName,
+    profileDeleted: tabEntry.profileDeleted,
     sessionId: tabEntry.agentSessionId,
     title: tabEntry.title,
     cwd: tabEntry.cwd,

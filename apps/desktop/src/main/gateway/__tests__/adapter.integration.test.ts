@@ -38,6 +38,32 @@ async function bindServer(server: Server): Promise<string> {
   });
 }
 
+async function canBindLoopback(): Promise<boolean> {
+  const probe = createServer();
+  try {
+    return await new Promise<boolean>((resolve, reject) => {
+      probe.once('error', (error) => {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'EPERM' || code === 'EACCES') {
+          resolve(false);
+          return;
+        }
+        reject(error);
+      });
+      probe.listen(0, '127.0.0.1', () => {
+        probe.close((error) => {
+          if (error) reject(error);
+          else resolve(true);
+        });
+      });
+    });
+  } finally {
+    if (probe.listening) {
+      probe.close();
+    }
+  }
+}
+
 /** Collect all SSE events from a fetch Response that has `body` as a ReadableStream. */
 async function collectSseEvents(
   res: Response,
@@ -156,9 +182,11 @@ function codexNonStreamRequest(model = 'deepseek-v4-pro') {
 
 // ─── Test setup ───────────────────────────────────────────────────────────────
 
-let mockAnthropicServer: Server;
+const describeIfLoopback = (await canBindLoopback()) ? describe : describe.skip;
+
+let mockAnthropicServer: Server | undefined;
 let mockAnthropicUrl: string;
-let adapter: CodexDeepSeekAnthropicAdapter;
+let adapter: CodexDeepSeekAnthropicAdapter | undefined;
 let gatewayUrl: string;
 
 beforeEach(async () => {
@@ -185,13 +213,15 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  adapter.close();
-  mockAnthropicServer.close();
+  adapter?.close();
+  mockAnthropicServer?.close();
+  adapter = undefined;
+  mockAnthropicServer = undefined;
 });
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe('CodexDeepSeekAnthropicAdapter: non-streaming (stream: false)', () => {
+describeIfLoopback('CodexDeepSeekAnthropicAdapter: non-streaming (stream: false)', () => {
   it('returns a completed JSON response', async () => {
     const res = await fetch(`${gatewayUrl}/responses`, {
       method: 'POST',
@@ -219,7 +249,7 @@ describe('CodexDeepSeekAnthropicAdapter: non-streaming (stream: false)', () => {
   });
 });
 
-describe('CodexDeepSeekAnthropicAdapter: streaming (stream: true)', () => {
+describeIfLoopback('CodexDeepSeekAnthropicAdapter: streaming (stream: true)', () => {
   it('responds with text/event-stream content-type', async () => {
     const res = await fetch(`${gatewayUrl}/responses`, {
       method: 'POST',
@@ -280,8 +310,8 @@ describe('CodexDeepSeekAnthropicAdapter: streaming (stream: true)', () => {
   it('CRITICAL: burst from upstream is spread out — not forwarded as one TCP packet', async () => {
     // Stop the default mock server and replace with one that sends ALL events
     // in a single TCP write (no delay) — simulating a fast LLM that bursts.
-    adapter.close();
-    mockAnthropicServer.close();
+    adapter!.close();
+    mockAnthropicServer!.close();
 
     const burstServer = createServer((req: IncomingMessage, res: ServerResponse) => {
       void (async () => {
@@ -392,7 +422,7 @@ describe('CodexDeepSeekAnthropicAdapter: streaming (stream: true)', () => {
   });
 });
 
-describe('CodexDeepSeekAnthropicAdapter: unknown route', () => {
+describeIfLoopback('CodexDeepSeekAnthropicAdapter: unknown route', () => {
   it('returns 404 for unknown paths', async () => {
     const res = await fetch(`${gatewayUrl}/unknown`, { method: 'POST' });
     expect(res.status).toBe(404);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentId, AgentHistoryEntry, CronFireEvent, TabHistoryEntry } from '@tday/shared';
+import type { AgentHistoryEntry, AgentInfo, CronFireEvent, TabHistoryEntry } from '@tday/shared';
 import {
   type Tab,
   type PersistedTab,
@@ -19,7 +19,7 @@ export interface TabsHook {
   agentHistoryLoading: boolean;
   dragId: string | null;
   closeTab: (id: string) => void;
-  addTab: (agentId?: AgentId, home?: string) => void;
+  addTab: (agent?: AgentInfo, home?: string) => void;
   restoreTab: () => void;
   restoreTabFromHistory: (entry: TabHistoryEntry) => void;
   restoreFromAgentHistory: (entry: AgentHistoryEntry) => void;
@@ -34,11 +34,11 @@ export interface TabsHook {
   updateTabSessionId: (tabId: string, sessionId: string | null) => void;
   setTabCoworker: (id: string, coworkerId: string | undefined) => void;
   removeFromAgentHistory: (id: string) => void;
-  initTabs: (persisted: PersistedTab[], savedActiveId: string | null, fallbackCwd: string, defaultAgentId: AgentId) => void;
+  initTabs: (persisted: PersistedTab[], savedActiveId: string | null, fallbackCwd: string, defaultAgent: AgentInfo) => void;
   loadDeferredData: (logoHinted: boolean, keepAwake: boolean, onLogoHint: () => void, onKeepAwake: () => void) => void;
 }
 
-export function useTabs(home: string, defaultAgentId: AgentId): TabsHook {
+export function useTabs(home: string, defaultAgent: AgentInfo): TabsHook {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeId, setActiveId] = useState<string>('');
   const tabsRef = useRef<Tab[]>([]);
@@ -83,6 +83,8 @@ export function useTabs(home: string, defaultAgentId: AgentId): TabsHook {
         epoch: 0,
         title: `[Cron] ${e.name}`,
         agentId: e.agentId,
+        agentProfileId: e.agentProfileId,
+        agentProfileName: e.agentProfileName,
         cwd: e.cwd || home,
         cwdDraft: e.cwd || home,
         initialPrompt: e.prompt,
@@ -111,7 +113,13 @@ export function useTabs(home: string, defaultAgentId: AgentId): TabsHook {
     setTabs((prev) => {
       const next = prev.filter((t) => t.id !== id);
       if (next.length === 0) {
-        const t = newTab(lastCwd() || home, defaultAgentId);
+        const t = newTab(
+          lastCwd() || home,
+          defaultAgent.baseAgentId,
+          undefined,
+          defaultAgent.id,
+          defaultAgent.displayName,
+        );
         setActiveId(t.id);
         return [t];
       }
@@ -130,6 +138,8 @@ export function useTabs(home: string, defaultAgentId: AgentId): TabsHook {
           histId: `${id}-${Date.now()}`,
           title: closing.title,
           agentId: closing.agentId,
+          agentProfileId: closing.agentProfileId,
+          agentProfileName: closing.agentProfileName,
           cwd: closing.cwd,
           closedAt: Date.now(),
           agentSessionId: sessionId ?? undefined,
@@ -142,8 +152,14 @@ export function useTabs(home: string, defaultAgentId: AgentId): TabsHook {
     void saveHistory();
   };
 
-  const addTab = (agentId: AgentId = defaultAgentId, _home?: string) => {
-    const t = newTab(lastCwd() || _home || home, agentId);
+  const addTab = (agent: AgentInfo = defaultAgent, _home?: string) => {
+    const t = newTab(
+      lastCwd() || _home || home,
+      agent.baseAgentId,
+      undefined,
+      agent.id,
+      agent.displayName,
+    );
     setTabs((prev) => [...prev, t]);
     setActiveId(t.id);
   };
@@ -154,6 +170,8 @@ export function useTabs(home: string, defaultAgentId: AgentId): TabsHook {
       epoch: 0,
       title: entry.title,
       agentId: entry.agentId,
+      agentProfileId: entry.agentProfileId,
+      agentProfileName: entry.agentProfileName,
       cwd: entry.cwd,
       cwdDraft: entry.cwd,
       agentSessionId: entry.agentSessionId,
@@ -167,7 +185,13 @@ export function useTabs(home: string, defaultAgentId: AgentId): TabsHook {
       id: `t${Date.now()}`,
       epoch: 0,
       title: entry.title,
-      agentId: (entry.agentId as AgentId) ?? 'pi',
+      agentId: entry.agentId as typeof defaultAgent.baseAgentId,
+      agentProfileId: entry.agentProfileId,
+      agentProfileName: entry.agentProfileName
+        ? entry.profileDeleted
+          ? `${entry.agentProfileName} (deleted)`
+          : entry.agentProfileName
+        : undefined,
       cwd: entry.cwd || home,
       cwdDraft: entry.cwd || home,
       agentSessionId: entry.sessionId,
@@ -237,7 +261,7 @@ export function useTabs(home: string, defaultAgentId: AgentId): TabsHook {
     persisted: PersistedTab[],
     savedActiveId: string | null,
     fallbackCwd: string,
-    initDefaultAgentId: AgentId,
+    initDefaultAgent: AgentInfo,
   ) => {
     if (persisted.length > 0) {
       const max = persisted.reduce((m, t) => {
@@ -247,6 +271,8 @@ export function useTabs(home: string, defaultAgentId: AgentId): TabsHook {
       resetTabCounter(max + 1);
       const restored: Tab[] = persisted.map((p) => ({
         id: p.id, epoch: 0, title: p.title, agentId: p.agentId,
+        agentProfileId: p.agentProfileId,
+        agentProfileName: p.agentProfileName,
         cwd: p.cwd, cwdDraft: p.cwd, agentSessionId: p.agentSessionId,
       }));
       const activeTabId =
@@ -256,7 +282,13 @@ export function useTabs(home: string, defaultAgentId: AgentId): TabsHook {
       setTabs(restored);
       setActiveId(activeTabId);
     } else {
-      const t = newTab(fallbackCwd, initDefaultAgentId);
+      const t = newTab(
+        fallbackCwd,
+        initDefaultAgent.baseAgentId,
+        undefined,
+        initDefaultAgent.id,
+        initDefaultAgent.displayName,
+      );
       setTabs([t]);
       setActiveId(t.id);
     }

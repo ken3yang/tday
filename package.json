@@ -6,16 +6,17 @@
   "author": "unbug",
   "packageManager": "pnpm@10.33.2",
   "scripts": {
-    "dev": "pnpm --filter @tday/desktop dev",
-    "build": "pnpm --filter @tday/desktop build",
-    "package": "pnpm --filter @tday/desktop build && pnpm --filter @tday/desktop package:mac",
-    "package:mac": "pnpm --filter @tday/desktop build && pnpm --filter @tday/desktop package:mac",
-    "package:win": "pnpm --filter @tday/desktop build && pnpm --filter @tday/desktop package:win",
-    "package:linux": "pnpm --filter @tday/desktop build && pnpm --filter @tday/desktop package:linux",
+    "dev": "node scripts/dev.mjs",
+    "dev:app": "corepack pnpm --filter @tday/desktop dev",
+    "build": "corepack pnpm --filter @tday/desktop build",
+    "package": "corepack pnpm --filter @tday/desktop build && corepack pnpm --filter @tday/desktop package:mac",
+    "package:mac": "corepack pnpm --filter @tday/desktop build && corepack pnpm --filter @tday/desktop package:mac",
+    "package:win": "corepack pnpm --filter @tday/desktop build && corepack pnpm --filter @tday/desktop package:win",
+    "package:linux": "corepack pnpm --filter @tday/desktop build && corepack pnpm --filter @tday/desktop package:linux",
     "release": "node scripts/release.mjs",
     "build:core": "cd crates/tday-core && cargo build --release",
-    "typecheck": "pnpm -r --parallel typecheck",
-    "lint": "pnpm -r --parallel lint"
+    "typecheck": "corepack pnpm -r --parallel typecheck",
+    "lint": "corepack pnpm -r --parallel lint"
   },
   "engines": {
     "node": ">=20"
